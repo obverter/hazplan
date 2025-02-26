@@ -26,4 +26,4 @@ flake8>=6.0.0
 
 # Notebooks
 jupyter>=1.0.0
-ipykernel>=6.22.0
+ipykernel>=6.22.0venv
