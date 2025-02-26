@@ -1,21 +1,14 @@
 """
 Database management module for storing and retrieving chemical data.
 """
+
 import logging
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import pandas as pd
-from sqlalchemy import (
-    Column, 
-    Float, 
-    Integer, 
-    String, 
-    Text, 
-    create_engine, 
-    select
-)
+from sqlalchemy import Column, Float, Integer, String, Text, create_engine, select
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
 
@@ -32,9 +25,9 @@ Base = declarative_base()
 
 class Chemical(Base):
     """SQLAlchemy model for the chemicals table."""
-    
+
     __tablename__ = "chemicals"
-    
+
     id = Column(Integer, primary_key=True)
     cas_number = Column(String(20), unique=True, index=True, nullable=True)
     name = Column(String(255), nullable=False, index=True)
@@ -68,7 +61,7 @@ class Chemical(Base):
     signal_word = Column(String(20))
     source_url = Column(Text)
     source_name = Column(String(255))
-    
+
     def to_dict(self) -> Dict[str, any]:
         """Convert the model to a dictionary."""
         return {
@@ -112,11 +105,11 @@ class DatabaseManager:
     """
     Database manager for storing and retrieving chemical data.
     """
-    
+
     def __init__(self, db_path: Optional[str] = None):
         """
         Initialize the database manager.
-        
+
         Args:
             db_path: Path to the SQLite database file. If None, a default path
                      will be used in the data directory.
@@ -127,22 +120,22 @@ class DatabaseManager:
             data_dir = project_root / "data"
             os.makedirs(data_dir, exist_ok=True)
             db_path = str(data_dir / "chemical_safety.db")
-            
+
         # Create the SQLite engine
         self.engine = create_engine(f"sqlite:///{db_path}")
-        
+
         # Create tables if they don't exist
         Base.metadata.create_all(self.engine)
-        
+
         logger.info(f"Database initialized at {db_path}")
-    
+
     def add_chemical(self, chemical_data: Dict[str, any]) -> Optional[int]:
         """
         Add a chemical to the database.
-        
+
         Args:
             chemical_data: Dictionary containing chemical data
-            
+
         Returns:
             ID of the inserted chemical, or None if insertion failed
         """
@@ -154,53 +147,58 @@ class DatabaseManager:
                     existing = session.execute(
                         select(Chemical).where(Chemical.cas_number == cas_number)
                     ).scalar_one_or_none()
-                    
+
                     if existing:
-                        logger.info(f"Chemical with CAS {cas_number} already exists, updating")
+                        logger.info(
+                            f"Chemical with CAS {cas_number} already exists, updating"
+                        )
                         # Update the existing record
                         for key, value in chemical_data.items():
                             if hasattr(existing, key):
                                 setattr(existing, key, value)
                         session.commit()
                         return existing.id
-                
+
                 # If no CAS number or chemical not found by CAS, check by name and formula
                 name = chemical_data.get("name")
                 formula = chemical_data.get("formula")
                 if name and formula:
                     existing = session.execute(
                         select(Chemical).where(
-                            (Chemical.name == name) & 
-                            (Chemical.formula == formula)
+                            (Chemical.name == name) & (Chemical.formula == formula)
                         )
                     ).scalar_one_or_none()
-                    
+
                     if existing:
-                        logger.info(f"Chemical with name '{name}' and formula '{formula}' already exists, updating")
+                        logger.info(
+                            f"Chemical with name '{name}' and formula '{formula}' already exists, updating"
+                        )
                         # Update the existing record
                         for key, value in chemical_data.items():
                             if hasattr(existing, key):
                                 setattr(existing, key, value)
                         session.commit()
                         return existing.id
-                
+
                 # Create a new chemical record
                 chemical = Chemical(**chemical_data)
                 session.add(chemical)
                 session.commit()
-                logger.info(f"Added chemical: {chemical_data.get('name')} (CAS: {cas_number})")
+                logger.info(
+                    f"Added chemical: {chemical_data.get('name')} (CAS: {cas_number})"
+                )
                 return chemical.id
         except Exception as e:
             logger.error(f"Error adding chemical to database: {str(e)}")
             return None
-    
+
     def get_chemical_by_cas(self, cas_number: str) -> Optional[Dict[str, any]]:
         """
         Get a chemical by its CAS number.
-        
+
         Args:
             cas_number: CAS registry number
-            
+
         Returns:
             Dictionary containing chemical data, or None if not found
         """
@@ -209,78 +207,92 @@ class DatabaseManager:
                 chemical = session.execute(
                     select(Chemical).where(Chemical.cas_number == cas_number)
                 ).scalar_one_or_none()
-                
+
                 if chemical:
                     return chemical.to_dict()
                 return None
         except Exception as e:
             logger.error(f"Error retrieving chemical with CAS {cas_number}: {str(e)}")
             return None
-    
+
     def search_chemicals(self, query: str) -> List[Dict[str, any]]:
         """
         Search for chemicals by name or CAS number.
-        
+
         Args:
             query: Search query (partial name or CAS number)
-            
+
         Returns:
             List of dictionaries containing matching chemical data
         """
         try:
             with Session(self.engine) as session:
                 # Search by name (case-insensitive LIKE query)
-                name_matches = session.execute(
-                    select(Chemical).where(Chemical.name.ilike(f"%{query}%"))
-                ).scalars().all()
-                
+                name_matches = (
+                    session.execute(
+                        select(Chemical).where(Chemical.name.ilike(f"%{query}%"))
+                    )
+                    .scalars()
+                    .all()
+                )
+
                 # Search by CAS number (case-insensitive LIKE query)
-                cas_matches = session.execute(
-                    select(Chemical).where(Chemical.cas_number.ilike(f"%{query}%"))
-                ).scalars().all()
-                
+                cas_matches = (
+                    session.execute(
+                        select(Chemical).where(Chemical.cas_number.ilike(f"%{query}%"))
+                    )
+                    .scalars()
+                    .all()
+                )
+
                 # Search by formula (case-sensitive)
-                formula_matches = session.execute(
-                    select(Chemical).where(Chemical.formula.like(f"%{query}%"))
-                ).scalars().all()
-                
+                formula_matches = (
+                    session.execute(
+                        select(Chemical).where(Chemical.formula.like(f"%{query}%"))
+                    )
+                    .scalars()
+                    .all()
+                )
+
                 # Combine results, removing duplicates
-                all_matches = {c.id: c for c in name_matches + cas_matches + formula_matches}
+                all_matches = {
+                    c.id: c for c in name_matches + cas_matches + formula_matches
+                }
                 return [c.to_dict() for c in all_matches.values()]
         except Exception as e:
             logger.error(f"Error searching chemicals with query '{query}': {str(e)}")
             return []
-    
+
     def export_to_csv(self, output_path: Optional[str] = None) -> Optional[str]:
         """
         Export the chemicals database to a CSV file.
-        
+
         Args:
             output_path: Path to save the CSV file. If None, a default path
                          will be used in the data directory.
-        
+
         Returns:
             Path to the saved CSV file, or None if export failed
         """
         try:
             with Session(self.engine) as session:
                 chemicals = session.execute(select(Chemical)).scalars().all()
-                
+
                 if not chemicals:
                     logger.warning("No chemicals to export")
                     return None
-                
+
                 # Convert to dataframe
                 data = [c.to_dict() for c in chemicals]
                 df = pd.DataFrame(data)
-                
+
                 # Set default output path if not provided
                 if output_path is None:
                     project_root = Path(__file__).parent.parent.parent
                     data_dir = project_root / "data" / "processed"
                     os.makedirs(data_dir, exist_ok=True)
                     output_path = str(data_dir / "chemicals_export.csv")
-                
+
                 # Save to CSV
                 df.to_csv(output_path, index=False)
                 logger.info(f"Exported {len(data)} chemicals to {output_path}")
@@ -288,11 +300,11 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error exporting chemicals to CSV: {str(e)}")
             return None
-    
+
     def get_all_chemicals(self) -> List[Dict[str, any]]:
         """
         Get all chemicals in the database.
-        
+
         Returns:
             List of dictionaries containing all chemical data
         """
@@ -303,11 +315,11 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error retrieving all chemicals: {str(e)}")
             return []
-    
+
     def count_chemicals(self) -> int:
         """
         Count the number of chemicals in the database.
-        
+
         Returns:
             Number of chemicals in the database
         """
