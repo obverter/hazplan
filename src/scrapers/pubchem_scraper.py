@@ -16,11 +16,11 @@ import requests
 from src.scrapers.base_scraper import BaseScraper
 from src.utils.cache_manager import CacheManager
 from src.utils.helpers import (
-    extract_hazard_codes, 
+    extract_hazard_codes,
     extract_precautionary_codes,
     parse_cas_number,
     parse_physical_property,
-    validate_chemical_data
+    validate_chemical_data,
 )
 
 # Configure logging
@@ -43,7 +43,7 @@ class PubChemScraper(BaseScraper):
     def __init__(self, use_cache: bool = True, cache_max_age: int = 86400):
         """
         Initialize the PubChem scraper.
-        
+
         Args:
             use_cache: Whether to use caching for API requests
             cache_max_age: Maximum age for cached responses in seconds (default: 1 day)
@@ -60,12 +60,12 @@ class PubChemScraper(BaseScraper):
         )
         self.ghs_classifications_url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{}/JSON?heading=GHS+Classification"
         self.hazards_url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{}/JSON?heading=Safety+and+Hazards"
-        
+
         # Set up caching
         self.use_cache = use_cache
         if use_cache:
             self.cache = CacheManager(max_age=cache_max_age)
-        
+
         # Retry configuration
         self.max_retries = 3
         self.retry_delay = 2  # seconds
@@ -117,25 +117,25 @@ class PubChemScraper(BaseScraper):
     def _api_request(self, url: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """
         Make an API request with caching and retry functionality.
-        
+
         Args:
             url: API URL
             params: Optional parameters for the request
-            
+
         Returns:
             JSON response as a dictionary, or None if request failed
         """
         cache_key = url
         if params:
             cache_key += json.dumps(params, sort_keys=True)
-        
+
         # Try to get from cache first
         if self.use_cache:
             cached_data = self.cache.get(cache_key)
             if cached_data:
                 logger.debug(f"Using cached response for: {url}")
                 return cached_data
-        
+
         # Make the API request with retries
         for attempt in range(1, self.max_retries + 1):
             try:
@@ -143,16 +143,16 @@ class PubChemScraper(BaseScraper):
                     response = self.session.get(url, params=params)
                 else:
                     response = self.session.get(url)
-                
+
                 response.raise_for_status()
                 data = response.json()
-                
+
                 # Cache the response
                 if self.use_cache:
                     self.cache.set(cache_key, data)
-                
+
                 return data
-                
+
             except requests.exceptions.HTTPError as e:
                 if response.status_code == 429:  # Too Many Requests
                     # Exponential backoff
@@ -163,29 +163,35 @@ class PubChemScraper(BaseScraper):
                     logger.warning(f"Resource not found: {url}")
                     return None
                 elif attempt < self.max_retries:
-                    logger.warning(f"HTTP error {e}. Retrying ({attempt}/{self.max_retries})...")
+                    logger.warning(
+                        f"HTTP error {e}. Retrying ({attempt}/{self.max_retries})..."
+                    )
                     time.sleep(self.retry_delay)
                 else:
                     logger.error(f"HTTP error after {self.max_retries} attempts: {e}")
                     return None
-                    
+
             except requests.exceptions.RequestException as e:
                 if attempt < self.max_retries:
-                    logger.warning(f"Request error: {e}. Retrying ({attempt}/{self.max_retries})...")
+                    logger.warning(
+                        f"Request error: {e}. Retrying ({attempt}/{self.max_retries})..."
+                    )
                     time.sleep(self.retry_delay)
                 else:
-                    logger.error(f"Request error after {self.max_retries} attempts: {e}")
+                    logger.error(
+                        f"Request error after {self.max_retries} attempts: {e}"
+                    )
                     return None
-                    
+
             except json.JSONDecodeError as e:
                 logger.error(f"Error parsing JSON response: {e}")
                 return None
-                
+
             except Exception as e:
                 logger.error(f"Unexpected error: {e}")
                 logger.debug(traceback.format_exc())
                 return None
-        
+
         return None
 
     def search_chemical(self, query: str) -> List[Dict[str, str]]:
@@ -208,9 +214,9 @@ class PubChemScraper(BaseScraper):
             else:
                 # Search by name
                 url = self.search_url.format(query)
-                
+
             data = self._api_request(url)
-            
+
             if not data or "IdentifierList" not in data:
                 logger.warning(f"No results found for query: {query}")
                 return []
@@ -280,21 +286,57 @@ class PubChemScraper(BaseScraper):
                 "cas_number": cas_number,
                 "name": props.get("IUPACName", ""),
                 "formula": props.get("MolecularFormula", ""),
-                "molecular_weight": float(props.get("MolecularWeight", 0)) if props.get("MolecularWeight") else None,
+                "molecular_weight": (
+                    float(props.get("MolecularWeight", 0))
+                    if props.get("MolecularWeight")
+                    else None
+                ),
                 "canonical_smiles": props.get("CanonicalSMILES", ""),
                 "isomeric_smiles": props.get("IsomericSMILES", ""),
                 "inchi": props.get("InChI", ""),
                 "inchikey": props.get("InChIKey", ""),
-                "xlogp": float(props.get("XLogP")) if props.get("XLogP") is not None else None,
-                "exact_mass": float(props.get("ExactMass")) if props.get("ExactMass") else None,
-                "monoisotopic_mass": float(props.get("MonoisotopicMass")) if props.get("MonoisotopicMass") else None,
+                "xlogp": (
+                    float(props.get("XLogP"))
+                    if props.get("XLogP") is not None
+                    else None
+                ),
+                "exact_mass": (
+                    float(props.get("ExactMass")) if props.get("ExactMass") else None
+                ),
+                "monoisotopic_mass": (
+                    float(props.get("MonoisotopicMass"))
+                    if props.get("MonoisotopicMass")
+                    else None
+                ),
                 "tpsa": float(props.get("TPSA")) if props.get("TPSA") else None,
-                "complexity": float(props.get("Complexity")) if props.get("Complexity") else None,
-                "charge": int(props.get("Charge")) if props.get("Charge") is not None else None,
-                "h_bond_donor_count": int(props.get("HBondDonorCount")) if props.get("HBondDonorCount") is not None else None,
-                "h_bond_acceptor_count": int(props.get("HBondAcceptorCount")) if props.get("HBondAcceptorCount") is not None else None,
-                "rotatable_bond_count": int(props.get("RotatableBondCount")) if props.get("RotatableBondCount") is not None else None,
-                "heavy_atom_count": int(props.get("HeavyAtomCount")) if props.get("HeavyAtomCount") is not None else None,
+                "complexity": (
+                    float(props.get("Complexity")) if props.get("Complexity") else None
+                ),
+                "charge": (
+                    int(props.get("Charge"))
+                    if props.get("Charge") is not None
+                    else None
+                ),
+                "h_bond_donor_count": (
+                    int(props.get("HBondDonorCount"))
+                    if props.get("HBondDonorCount") is not None
+                    else None
+                ),
+                "h_bond_acceptor_count": (
+                    int(props.get("HBondAcceptorCount"))
+                    if props.get("HBondAcceptorCount") is not None
+                    else None
+                ),
+                "rotatable_bond_count": (
+                    int(props.get("RotatableBondCount"))
+                    if props.get("RotatableBondCount") is not None
+                    else None
+                ),
+                "heavy_atom_count": (
+                    int(props.get("HeavyAtomCount"))
+                    if props.get("HeavyAtomCount") is not None
+                    else None
+                ),
                 "physical_state": hazards_data.get("physical_state", ""),
                 "color": hazards_data.get("color", ""),
                 "density": hazards_data.get("density", ""),
@@ -312,27 +354,37 @@ class PubChemScraper(BaseScraper):
                 "source_url": f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}",
                 "source_name": "PubChem",
             }
-            
+
             # Extract structured hazard data
             if chemical_data["hazard_statements"]:
-                chemical_data["hazard_codes"] = extract_hazard_codes(chemical_data["hazard_statements"])
-            
+                chemical_data["hazard_codes"] = extract_hazard_codes(
+                    chemical_data["hazard_statements"]
+                )
+
             if chemical_data["precautionary_statements"]:
-                chemical_data["precautionary_codes"] = extract_precautionary_codes(chemical_data["precautionary_statements"])
-            
+                chemical_data["precautionary_codes"] = extract_precautionary_codes(
+                    chemical_data["precautionary_statements"]
+                )
+
             # Parse physical properties to extract numeric values and units
-            for prop in ["density", "melting_point", "boiling_point", "flash_point", "vapor_pressure"]:
+            for prop in [
+                "density",
+                "melting_point",
+                "boiling_point",
+                "flash_point",
+                "vapor_pressure",
+            ]:
                 if chemical_data.get(prop):
                     value, unit = parse_physical_property(chemical_data[prop])
                     if value is not None:
                         chemical_data[f"{prop}_value"] = value
                         chemical_data[f"{prop}_unit"] = unit
-            
+
             # Validate the chemical data
             is_valid, errors = validate_chemical_data(chemical_data)
             if not is_valid:
                 logger.warning(f"Validation errors for CID {cid}: {', '.join(errors)}")
-            
+
             return chemical_data
         except Exception as e:
             logger.error(f"Error extracting data for CID {cid}: {str(e)}")
@@ -351,10 +403,10 @@ class PubChemScraper(BaseScraper):
         """
         url = self.properties_url.format(cid, self.basic_properties)
         data = self._api_request(url)
-        
+
         if not data or "PropertyTable" not in data:
             return {}
-            
+
         try:
             props = data["PropertyTable"]["Properties"][0]
             return props
@@ -374,19 +426,19 @@ class PubChemScraper(BaseScraper):
         """
         synonyms_url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/synonyms/JSON"
         data = self._api_request(synonyms_url)
-        
+
         if not data or "InformationList" not in data:
             return None
-            
+
         try:
             synonyms = data["InformationList"]["Information"][0].get("Synonym", [])
-            
+
             # Look for CAS number pattern and validate each potential CAS number
             for synonym in synonyms:
                 cas_number = parse_cas_number(synonym)
                 if cas_number:
                     return cas_number
-                    
+
             return None
         except (KeyError, IndexError) as e:
             logger.error(f"Error parsing synonyms for CID {cid}: {str(e)}")
@@ -404,31 +456,34 @@ class PubChemScraper(BaseScraper):
         """
         url = self.ghs_classifications_url.format(cid)
         data = self._api_request(url)
-        
+
         result = {
             "hazard_statements": "",
             "precautionary_statements": "",
             "pictograms": "",
             "signal_word": "",
         }
-        
+
         if not data or "Record" not in data or "Section" not in data["Record"]:
             return result
-            
+
         sections = data["Record"]["Section"]
-        
+
         try:
             for section in sections:
-                if ("TOCHeading" in section and section["TOCHeading"] == "GHS Classification"):
+                if (
+                    "TOCHeading" in section
+                    and section["TOCHeading"] == "GHS Classification"
+                ):
                     if "Section" not in section:
                         continue
-                        
+
                     for subsection in section["Section"]:
                         if "TOCHeading" not in subsection:
                             continue
-                            
+
                         heading = subsection["TOCHeading"]
-                        
+
                         if heading == "GHS Hazard Statements":
                             statements = []
                             if "Information" in subsection:
@@ -441,7 +496,7 @@ class PubChemScraper(BaseScraper):
                                             if "String" in markup:
                                                 statements.append(markup["String"])
                             result["hazard_statements"] = "; ".join(statements)
-                            
+
                         elif heading == "Precautionary Statement Codes":
                             statements = []
                             if "Information" in subsection:
@@ -454,7 +509,7 @@ class PubChemScraper(BaseScraper):
                                             if "String" in markup:
                                                 statements.append(markup["String"])
                             result["precautionary_statements"] = "; ".join(statements)
-                            
+
                         elif heading == "Pictogram(s)":
                             pictograms = []
                             if "Information" in subsection:
@@ -467,7 +522,7 @@ class PubChemScraper(BaseScraper):
                                             if "String" in markup:
                                                 pictograms.append(markup["String"])
                             result["pictograms"] = "; ".join(pictograms)
-                            
+
                         elif heading == "GHS Signal Word":
                             if (
                                 "Information" in subsection
@@ -481,7 +536,7 @@ class PubChemScraper(BaseScraper):
                                     markup = info["Value"]["StringWithMarkup"][0]
                                     if "String" in markup:
                                         result["signal_word"] = markup["String"]
-            
+
             return result
         except (KeyError, IndexError) as e:
             logger.error(f"Error parsing GHS data for CID {cid}: {str(e)}")
@@ -499,7 +554,7 @@ class PubChemScraper(BaseScraper):
         """
         url = self.hazards_url.format(cid)
         data = self._api_request(url)
-        
+
         result = {
             "physical_state": "",
             "color": "",
@@ -510,10 +565,10 @@ class PubChemScraper(BaseScraper):
             "solubility": "",
             "vapor_pressure": "",
         }
-        
+
         if not data or "Record" not in data or "Section" not in data["Record"]:
             return result
-            
+
         try:
             # Function to extract property value
             def extract_property(section_name, property_name):
@@ -524,7 +579,7 @@ class PubChemScraper(BaseScraper):
                     ):
                         if "Section" not in section:
                             continue
-                            
+
                         for subsection in section["Section"]:
                             if (
                                 "TOCHeading" in subsection
@@ -543,7 +598,7 @@ class PubChemScraper(BaseScraper):
                                         if "String" in markup:
                                             return markup["String"]
                 return ""
-            
+
             # Extract physical properties
             result["physical_state"] = extract_property(
                 "Experimental Properties", "Physical Description"
@@ -565,7 +620,7 @@ class PubChemScraper(BaseScraper):
             result["vapor_pressure"] = extract_property(
                 "Experimental Properties", "Vapor Pressure"
             )
-            
+
             return result
         except (KeyError, IndexError) as e:
             logger.error(f"Error parsing hazards data for CID {cid}: {str(e)}")
@@ -574,15 +629,15 @@ class PubChemScraper(BaseScraper):
     def close(self):
         """Close the session and free resources."""
         super().close()
-        
+
         # Clear expired cache entries if caching is enabled
         if self.use_cache:
             self.cache.clear_expired()
-    
+
     def clear_cache(self, key: Optional[str] = None):
         """
         Clear the cache.
-        
+
         Args:
             key: Optional specific cache key to clear. If None, clears all cache.
         """
