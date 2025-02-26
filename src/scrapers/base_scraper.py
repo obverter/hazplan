@@ -94,10 +94,10 @@ class BaseScraper(ABC):
     def clean_text(self, text: Optional[str]) -> Optional[str]:
         """
         Clean and normalize text data.
-        
+
         Args:
             text: The text to clean
-            
+
         Returns:
             Cleaned text
         """
