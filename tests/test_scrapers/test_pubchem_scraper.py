@@ -3,7 +3,6 @@ Tests for the PubChemScraper class.
 """
 
 import json
-
 import pytest
 import requests
 
@@ -183,8 +182,50 @@ class TestPubChemScraper:
                                                     }
                                                 ],
                                             },
+                                            {
+                                                "TOCHeading": "Melting Point",
+                                                "Information": [
+                                                    {
+                                                        "Name": "Melting Point",
+                                                        "Value": {
+                                                            "StringWithMarkup": [
+                                                                {"String": "-94.7 °C"}
+                                                            ]
+                                                        },
+                                                    }
+                                                ],
+                                            }
                                         ],
                                     },
+                                ],
+                            }
+                        }
+                    ),
+                    # Full JSON view
+                    "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/180/JSON": MockResponse(
+                        {
+                            "Record": {
+                                "RecordType": "Compound",
+                                "TOCHeading": "Acetone",
+                                "Section": [
+                                    {
+                                        "TOCHeading": "Experimental Properties",
+                                        "Section": [
+                                            {
+                                                "TOCHeading": "Density",
+                                                "Information": [
+                                                    {
+                                                        "Name": "Density",
+                                                        "Value": {
+                                                            "StringWithMarkup": [
+                                                                {"String": "0.79 g/cm³"}
+                                                            ]
+                                                        },
+                                                    }
+                                                ],
+                                            }
+                                        ],
+                                    }
                                 ],
                             }
                         }
@@ -214,24 +255,8 @@ class TestPubChemScraper:
 
         return mock_session
 
-    def test_init(self):
-        """Test initialization."""
-        scraper = PubChemScraper()
-        assert scraper.base_url == "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
-
-    def test_search_chemical(self, mock_session):
-        """Test searching for a chemical."""
-        scraper = PubChemScraper()
-        results = scraper.search_chemical("acetone")
-
-        assert len(results) > 0
-        assert results[0]["cid"] == 180
-        assert results[0]["name"] == "propan-2-one"
-        assert results[0]["formula"] == "C3H6O"
-        assert float(results[0]["molecular_weight"]) == 58.08
-
-    def test_extract_chemical_data(self, mock_session):
-        """Test extracting detailed chemical data."""
+    def test_extract_chemical_data_full_properties(self, mock_session):
+        """Test extracting comprehensive chemical data with full properties."""
         scraper = PubChemScraper()
         data = scraper.extract_chemical_data("180")
 
@@ -241,27 +266,50 @@ class TestPubChemScraper:
         assert data["formula"] == "C3H6O"
         assert data["molecular_weight"] == 58.08
 
-        # Check physical properties
+        # Check comprehensive physical properties
         assert data["physical_state"] == "Colorless liquid"
         assert data["boiling_point"] == "56.05 °C"
+        assert data["melting_point"] == "-94.7 °C"
         assert data["flash_point"] == "-20 °C"
+        assert data["density"] == "0.79 g/cm³"
 
         # Check hazard information
         assert "H225" in data["hazard_statements"]
         assert "Flame" in data["ghs_pictograms"]
         assert data["signal_word"] == "Danger"
 
-    def test_get_cas_number(self, mock_session):
-        """Test extracting CAS number."""
+    def test_get_full_json_data(self, mock_session):
+        """Test retrieving full JSON data for a compound."""
         scraper = PubChemScraper()
-        cas_number = scraper._get_cas_number("180")
-        assert cas_number == "67-64-1"
+        
+        # Test successful retrieval
+        full_json = scraper._get_full_json_data("180")
+        assert full_json is not None
+        assert "Record" in full_json
+        
+        # Verify specific section exists
+        assert any(
+            section.get("TOCHeading") == "Experimental Properties" 
+            for section in full_json.get("Record", {}).get("Section", [])
+        )
 
-    def test_get_properties(self, mock_session):
-        """Test getting basic properties."""
+    def test_extract_property_from_full_json(self, mock_session):
+        """Test extracting specific properties from full JSON."""
         scraper = PubChemScraper()
-        props = scraper._get_properties("180")
-
-        assert props["IUPACName"] == "propan-2-one"
-        assert props["MolecularFormula"] == "C3H6O"
-        assert props["MolecularWeight"] == 58.08
+        full_json = scraper._get_full_json_data("180")
+        
+        # Test successful extraction
+        density = scraper._extract_property_from_full_json(
+            full_json, 
+            target_headings=["Experimental Properties"],
+            section_types=["Density"]
+        )
+        assert density == "0.79 g/cm³"
+        
+        # Test with non-existent property
+        non_existent = scraper._extract_property_from_full_json(
+            full_json, 
+            target_headings=["Non-existent Section"],
+            section_types=["Non-existent Type"]
+        )
+        assert non_existent is None

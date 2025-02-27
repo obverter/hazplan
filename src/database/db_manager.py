@@ -19,16 +19,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Rest of the file remains the same...
+
 # Create base class for SQLAlchemy models
 Base = declarative_base()
-
 
 class Chemical(Base):
     """SQLAlchemy model for the chemicals table."""
 
     __tablename__ = "chemicals"
 
-    id = Column(Integer, primary_key=True)
+    # Ensure a primary key is defined
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Existing columns
     cas_number = Column(String(20), unique=True, index=True, nullable=True)
     name = Column(String(255), nullable=False, index=True)
     formula = Column(String(255))
@@ -62,9 +66,26 @@ class Chemical(Base):
     source_url = Column(Text)
     source_name = Column(String(255))
 
+    # New columns for parsed property values
+    density_value = Column(Float, nullable=True)
+    density_unit = Column(String(50), nullable=True)
+    melting_point_value = Column(Float, nullable=True)
+    melting_point_unit = Column(String(50), nullable=True)
+    boiling_point_value = Column(Float, nullable=True)
+    boiling_point_unit = Column(String(50), nullable=True)
+    flash_point_value = Column(Float, nullable=True)
+    flash_point_unit = Column(String(50), nullable=True)
+    vapor_pressure_value = Column(Float, nullable=True)
+    vapor_pressure_unit = Column(String(50), nullable=True)
+
+    # New columns for toxicity data
+    lc50 = Column(String(255), nullable=True)
+    ld50 = Column(String(255), nullable=True)
+    acute_toxicity_notes = Column(Text, nullable=True)
+
     def to_dict(self) -> Dict[str, any]:
         """Convert the model to a dictionary."""
-        return {
+        base_dict = {
             "id": self.id,
             "cas_number": self.cas_number,
             "name": self.name,
@@ -99,6 +120,20 @@ class Chemical(Base):
             "source_url": self.source_url,
             "source_name": self.source_name,
         }
+
+        # Add new parsed value columns to the dictionary
+        additional_fields = [
+            'density_value', 'density_unit',
+            'melting_point_value', 'melting_point_unit',
+            'boiling_point_value', 'boiling_point_unit',
+            'flash_point_value', 'flash_point_unit',
+            'vapor_pressure_value', 'vapor_pressure_unit'
+        ]
+        
+        for field in additional_fields:
+            base_dict[field] = getattr(self, field, None)
+        
+        return base_dict
 
 
 class DatabaseManager:
@@ -227,6 +262,9 @@ class DatabaseManager:
         """
         try:
             with Session(self.engine) as session:
+                # Print out the full query for debugging
+                logger.info(f"Searching for chemical query: {query}")
+
                 # Search by name (case-insensitive LIKE query)
                 name_matches = (
                     session.execute(
@@ -258,6 +296,14 @@ class DatabaseManager:
                 all_matches = {
                     c.id: c for c in name_matches + cas_matches + formula_matches
                 }
+                
+                # Log the number of matches found
+                logger.info(f"Found {len(all_matches)} matching chemicals")
+                
+                # If no matches, log the queries tried
+                if not all_matches:
+                    logger.warning(f"No matches found for queries: name like '%{query}%', cas_number like '%{query}%', formula like '%{query}%'")
+
                 return [c.to_dict() for c in all_matches.values()]
         except Exception as e:
             logger.error(f"Error searching chemicals with query '{query}': {str(e)}")

@@ -1,8 +1,8 @@
 """
-PubChem scraper module for retrieving chemical data from PubChem.
+PubChem scraper module for retrieving comprehensive chemical data from PubChem.
 
-This module uses the PubChem PUG REST API rather than scraping the website directly,
-which is more efficient and follows best practices for data retrieval.
+This module uses the PubChem PUG REST API and the PUG View JSON endpoint 
+to retrieve extensive chemical information.
 """
 
 import json
@@ -33,11 +33,10 @@ logger = logging.getLogger(__name__)
 
 class PubChemScraper(BaseScraper):
     """
-    Scraper for retrieving chemical data from PubChem.
+    Scraper for retrieving comprehensive chemical data from PubChem.
 
-    Uses the PubChem PUG REST API to search for chemicals and retrieve
-    their properties. See documentation at:
-    https://pubchemdocs.ncbi.nlm.nih.gov/pug-rest
+    Uses the PubChem PUG REST API and PUG View JSON to comprehensively 
+    retrieve chemical properties.
     """
 
     def __init__(self, use_cache: bool = True, cache_max_age: int = 86400):
@@ -55,9 +54,7 @@ class PubChemScraper(BaseScraper):
         self.properties_url = (
             "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{}/property/{}/JSON"
         )
-        self.record_url = (
-            "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{}/JSON"
-        )
+        self.full_json_url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{}/JSON"
         self.ghs_classifications_url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{}/JSON?heading=GHS+Classification"
         self.hazards_url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{}/JSON?heading=Safety+and+Hazards"
 
@@ -71,48 +68,25 @@ class PubChemScraper(BaseScraper):
         self.retry_delay = 2  # seconds
 
         # Properties to retrieve from PubChem
-        self.basic_properties = ",".join(
-            [
-                "IUPACName",
-                "MolecularFormula",
-                "MolecularWeight",
-                "CanonicalSMILES",
-                "IsomericSMILES",
-                "InChI",
-                "InChIKey",
-                "XLogP",
-                "ExactMass",
-                "MonoisotopicMass",
-                "TPSA",
-                "Complexity",
-                "Charge",
-                "HBondDonorCount",
-                "HBondAcceptorCount",
-                "RotatableBondCount",
-                "HeavyAtomCount",
-                "AtomStereoCount",
-                "DefinedAtomStereoCount",
-                "UndefinedAtomStereoCount",
-                "BondStereoCount",
-                "DefinedBondStereoCount",
-                "UndefinedBondStereoCount",
-                "CovalentUnitCount",
-                "Volume3D",
-                "XStericQuadrupole3D",
-                "YStericQuadrupole3D",
-                "ZStericQuadrupole3D",
-                "FeatureCount3D",
-                "FeatureAcceptorCount3D",
-                "FeatureDonorCount3D",
-                "FeatureAnionCount3D",
-                "FeatureCationCount3D",
-                "FeatureRingCount3D",
-                "FeatureHydrophobeCount3D",
-                "ConformerModelRMSD3D",
-                "EffectiveRotorCount3D",
-                "ConformerCount3D",
-            ]
-        )
+        self.basic_properties = ",".join([
+            "IUPACName",
+            "MolecularFormula",
+            "MolecularWeight",
+            "CanonicalSMILES",
+            "IsomericSMILES",
+            "InChI",
+            "InChIKey",
+            "XLogP",
+            "ExactMass",
+            "MonoisotopicMass",
+            "TPSA",
+            "Complexity",
+            "Charge",
+            "HBondDonorCount",
+            "HBondAcceptorCount",
+            "RotatableBondCount",
+            "HeavyAtomCount",
+        ])
 
     def _api_request(self, url: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """
@@ -139,6 +113,7 @@ class PubChemScraper(BaseScraper):
         # Make the API request with retries
         for attempt in range(1, self.max_retries + 1):
             try:
+                # Use the session from the parent BaseScraper class
                 if params:
                     response = self.session.get(url, params=params)
                 else:
@@ -193,6 +168,173 @@ class PubChemScraper(BaseScraper):
                 return None
 
         return None
+
+    def _get_full_json_data(self, cid: str) -> Optional[Dict]:
+        """
+        Retrieve the full JSON data for a compound by CID.
+
+        Args:
+            cid: PubChem Compound ID
+
+        Returns:
+            Full JSON data or None if retrieval fails
+        """
+        try:
+            # Check cache first
+            if self.use_cache:
+                cached_data = self.cache.get(f"full_json_{cid}")
+                if cached_data:
+                    return cached_data
+
+            # Fetch the full JSON data
+            url = self.full_json_url.format(cid)
+            data = self._api_request(url)
+
+            # Cache the response
+            if self.use_cache and data:
+                self.cache.set(f"full_json_{cid}", data)
+
+            return data
+        except Exception as e:
+            logger.error(f"Error retrieving full JSON for CID {cid}: {str(e)}")
+            logger.debug(traceback.format_exc())
+            return None
+
+    def _extract_toxicity_data(self, full_json: Dict) -> Dict[str, Optional[str]]:
+        """
+        Extract toxicity data from the full JSON view.
+
+        Args:
+            full_json: Full compound JSON data
+
+        Returns:
+            Dictionary containing toxicity information
+        """
+        # Add this at the beginning of the method
+        toxicity_sections = [
+            section.get('TOCHeading', '') 
+            for section in full_json.get('Record', {}).get('Section', [])
+        ]
+        print("Toxicity-related sections found:", 
+            [s for s in toxicity_sections if any(keyword in s.lower() for keyword in ['toxicity', 'acute', 'health'])])
+        # Print the entire structure of the JSON
+        with open('full_ethanol_json_structure.txt', 'w') as f:
+            def print_structure(obj, indent=0):
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        f.write('  ' * indent + str(k) + ':\n')
+                        print_structure(v, indent + 1)
+                elif isinstance(obj, list):
+                    for item in obj:
+                        f.write('  ' * indent + '- ')
+                        print_structure(item, indent + 1)
+                else:
+                    f.write('  ' * indent + str(obj) + '\n')
+            
+            print_structure(full_json)
+
+        toxicity_data = {
+            "lc50": None,
+            "ld50": None,
+            "acute_toxicity_notes": None
+        }
+
+        if not full_json or 'Record' not in full_json:
+            return toxicity_data
+
+        try:
+            # Search all sections recursively
+            def search_sections(sections):
+                toxicity_info = []
+                
+                # Extensive list of LD50 and LC50 search keywords
+                ld50_keywords = [
+                    'LD50', 'lethal dose', 'median lethal dose', 
+                    'acute toxicity', 'toxic dose', 'lethal concentration'
+                ]
+                lc50_keywords = [
+                    'LC50', 'lethal concentration', 'median lethal concentration', 
+                    'acute inhalation toxicity'
+                ]
+                
+                for section in sections:
+                    # Log extremely detailed information about each section
+                    print(f"SECTION: {section.get('TOCHeading', 'Unknown')}")
+                    print(f"SECTION KEYS: {section.keys()}")
+                    
+                    # Check information subsections
+                    if 'Information' in section:
+                        for info in section['Information']:
+                            print(f"INFO: {info}")
+                            
+                            if 'Value' in info and 'StringWithMarkup' in info['Value']:
+                                for markup in info['Value']['StringWithMarkup']:
+                                    if 'String' in markup:
+                                        toxicity_string = markup['String']
+                                        print(f"TOXICITY STRING: {toxicity_string}")
+                                        
+                                        toxicity_info.append(toxicity_string)
+                                        
+                                        # Look for LD50
+                                        if any(keyword.lower() in toxicity_string.lower() for keyword in ld50_keywords):
+                                            if not toxicity_data['ld50']:
+                                                toxicity_data['ld50'] = toxicity_string
+                                                print(f"FOUND LD50: {toxicity_string}")
+                                        
+                                        # Look for LC50
+                                        if any(keyword.lower() in toxicity_string.lower() for keyword in lc50_keywords):
+                                            if not toxicity_data['lc50']:
+                                                toxicity_data['lc50'] = toxicity_string
+                                                print(f"FOUND LC50: {toxicity_string}")
+                    
+                    # Recursively search subsections
+                    if 'Section' in section:
+                        sub_toxicity = search_sections(section['Section'])
+                        toxicity_info.extend(sub_toxicity)
+                
+                return toxicity_info
+
+            # Sections to search for toxicity data
+            toxicity_sections = [
+                'Toxicity Data', 
+                'Acute Toxicity', 
+                'Toxicological Information', 
+                'Acute Effects', 
+                'Toxicity',
+                'Health Hazards',
+                'Acute Exposure',
+                'Toxicological Effects',
+                'Chronic Toxicity',
+                'Toxicity Summary'
+            ]
+
+            # Perform the search
+            toxicity_sections_found = [
+                section for section in full_json['Record'].get('Section', []) 
+                if section.get('TOCHeading') in toxicity_sections
+            ]
+            
+            # Print found sections
+            print("FOUND TOXICITY SECTIONS:")
+            for section in toxicity_sections_found:
+                print(section.get('TOCHeading'))
+            
+            # Extract toxicity information
+            toxicity_info = search_sections(toxicity_sections_found)
+            
+            # Combine toxicity information
+            if toxicity_info:
+                toxicity_data['acute_toxicity_notes'] = '; '.join(toxicity_info)
+
+            # Print extracted data
+            print(f"FINAL TOXICITY DATA: {toxicity_data}")
+
+            return toxicity_data
+        
+        except Exception as e:
+            print(f"ERROR EXTRACTING TOXICITY DATA: {str(e)}")
+            print(traceback.format_exc())
+            return toxicity_data
 
     def search_chemical(self, query: str) -> List[Dict[str, str]]:
         """
@@ -267,6 +409,13 @@ class PubChemScraper(BaseScraper):
             return {}
 
         try:
+            # Initialize toxicity data
+            toxicity_data = {
+                "lc50": None,
+                "ld50": None,
+                "acute_toxicity_notes": None
+            }
+
             # Get basic properties
             props = self._get_properties(cid)
             if not props:
@@ -280,6 +429,21 @@ class PubChemScraper(BaseScraper):
 
             # Get hazards information
             hazards_data = self._get_hazards_data(cid)
+
+            # Get full JSON data for additional information
+            full_json = self._get_full_json_data(cid)
+            
+            # Log the full JSON data for debugging
+            if full_json:
+                with open(f"full_json_{cid}.json", "w") as f:
+                    json.dump(full_json, f, indent=2)
+            
+            # Extract toxicity data
+            if full_json:
+                toxicity_data = self._extract_toxicity_data(full_json)
+                
+                # Log extracted toxicity data
+                logger.info(f"Extracted toxicity data for {cid}: {toxicity_data}")
 
             # Combine all data
             chemical_data = {
@@ -353,6 +517,11 @@ class PubChemScraper(BaseScraper):
                 "signal_word": ghs_data.get("signal_word", ""),
                 "source_url": f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}",
                 "source_name": "PubChem",
+                
+                # Add toxicity data
+                "lc50": toxicity_data.get("lc50"),
+                "ld50": toxicity_data.get("ld50"),
+                "acute_toxicity_notes": toxicity_data.get("acute_toxicity_notes"),
             }
 
             # Extract structured hazard data
@@ -454,6 +623,7 @@ class PubChemScraper(BaseScraper):
         Returns:
             Dictionary containing GHS classifications
         """
+        # Attempt to get data from the specific GHS classification URL
         url = self.ghs_classifications_url.format(cid)
         data = self._api_request(url)
 
@@ -465,11 +635,16 @@ class PubChemScraper(BaseScraper):
         }
 
         if not data or "Record" not in data or "Section" not in data["Record"]:
-            return result
+            # Try full JSON view as a fallback
+            full_json = self._get_full_json_data(cid)
+            if not full_json or "Record" not in full_json:
+                return result
 
-        sections = data["Record"]["Section"]
+            data = full_json
 
         try:
+            sections = data["Record"].get("Section", [])
+
             for section in sections:
                 if (
                     "TOCHeading" in section
@@ -552,9 +727,7 @@ class PubChemScraper(BaseScraper):
         Returns:
             Dictionary containing physical properties and hazard data
         """
-        url = self.hazards_url.format(cid)
-        data = self._api_request(url)
-
+        # Default result dictionary
         result = {
             "physical_state": "",
             "color": "",
@@ -566,65 +739,124 @@ class PubChemScraper(BaseScraper):
             "vapor_pressure": "",
         }
 
-        if not data or "Record" not in data or "Section" not in data["Record"]:
+        # Get full JSON data
+        full_json = self._get_full_json_data(cid)
+        
+        if not full_json or 'Record' not in full_json:
             return result
 
         try:
-            # Function to extract property value
-            def extract_property(section_name, property_name):
-                for section in data["Record"]["Section"]:
-                    if (
-                        "TOCHeading" in section
-                        and section["TOCHeading"] == section_name
-                    ):
-                        if "Section" not in section:
-                            continue
+            # Comprehensive property search
+            sections = full_json.get('Record', {}).get('Section', [])
+            
+            # Recursively search through all sections
+            def search_sections(sections):
+                properties = {}
+                for section in sections:
+                    # Log the section for debugging
+                    logger.info(f"Examining section: {section.get('TOCHeading', 'Unknown')}")
+                    
+                    # Check for specific headings
+                    headings_map = {
+                        "Physical Description": "physical_state",
+                        "Color/Form": "color",
+                        "Density": "density",
+                        "Melting Point": "melting_point", 
+                        "Boiling Point": "boiling_point",
+                        "Flash Point": "flash_point",
+                        "Solubility": "solubility",
+                        "Vapor Pressure": "vapor_pressure"
+                    }
+                    
+                    # Check current section
+                    section_heading = section.get('TOCHeading', '')
+                    if section_heading in headings_map:
+                        if 'Information' in section:
+                            for info in section['Information']:
+                                if 'Value' in info and 'StringWithMarkup' in info['Value']:
+                                    for markup in info['Value']['StringWithMarkup']:
+                                        if 'String' in markup:
+                                            prop_name = headings_map[section_heading]
+                                            properties[prop_name] = markup['String']
+                    
+                    # Recursively search subsections
+                    if 'Section' in section:
+                        sub_properties = search_sections(section['Section'])
+                        properties.update(sub_properties)
+                
+                return properties
 
-                        for subsection in section["Section"]:
-                            if (
-                                "TOCHeading" in subsection
-                                and subsection["TOCHeading"] == property_name
-                            ):
-                                if (
-                                    "Information" in subsection
-                                    and subsection["Information"]
-                                ):
-                                    info = subsection["Information"][0]
-                                    if (
-                                        "Value" in info
-                                        and "StringWithMarkup" in info["Value"]
-                                    ):
-                                        markup = info["Value"]["StringWithMarkup"][0]
-                                        if "String" in markup:
-                                            return markup["String"]
-                return ""
-
-            # Extract physical properties
-            result["physical_state"] = extract_property(
-                "Experimental Properties", "Physical Description"
-            )
-            result["color"] = extract_property("Experimental Properties", "Color/Form")
-            result["density"] = extract_property("Experimental Properties", "Density")
-            result["melting_point"] = extract_property(
-                "Experimental Properties", "Melting Point"
-            )
-            result["boiling_point"] = extract_property(
-                "Experimental Properties", "Boiling Point"
-            )
-            result["flash_point"] = extract_property(
-                "Safety and Hazards", "Flash Point"
-            )
-            result["solubility"] = extract_property(
-                "Experimental Properties", "Solubility"
-            )
-            result["vapor_pressure"] = extract_property(
-                "Experimental Properties", "Vapor Pressure"
-            )
+            # Perform the search
+            extracted_properties = search_sections(sections)
+            
+            # Update the result dictionary
+            for key, value in extracted_properties.items():
+                if value:
+                    result[key] = value
 
             return result
-        except (KeyError, IndexError) as e:
+        except Exception as e:
             logger.error(f"Error parsing hazards data for CID {cid}: {str(e)}")
+            logger.debug(traceback.format_exc())
             return result
+
+    def _extract_property_from_full_json(
+        self, full_json: Dict, target_headings: List[str], 
+        section_types: Optional[List[str]] = None
+    ) -> Optional[str]:
+        """
+        Extract a specific property from the full JSON data.
+
+        Args:
+            full_json: Full compound JSON data
+            target_headings: List of target section headings to search
+            section_types: Optional list of section types to search
+
+        Returns:
+            Extracted property value or None
+        """
+        if not full_json or 'Record' not in full_json:
+            return None
+
+        sections = full_json['Record'].get('Section', [])
+        
+        logger.info(f"Searching for properties. Target Headings: {target_headings}, Section Types: {section_types}")
+        
+        for section in sections:
+            # Log section details for debugging
+            section_heading = section.get('TOCHeading', '')
+            section_type = section.get('RecordType', '')
+            logger.info(f"Examining section: Heading '{section_heading}', Type '{section_type}'")
+
+            # Check section type if specified
+            if (section_types and 
+                section_heading not in section_types and 
+                section_type not in section_types):
+                continue
+
+            # Check section heading
+            if section_heading in target_headings:
+                # Dive into subsections to find information
+                sub_sections = section.get('Section', [])
+                for sub_section in sub_sections:
+                    # Log subsection details
+                    sub_heading = sub_section.get('TOCHeading', '')
+                    logger.info(f"Examining subsection: Heading '{sub_heading}'")
+
+                    # Look for specific information
+                    if 'Information' in sub_section:
+                        for info in sub_section['Information']:
+                            if 'Value' in info and 'StringWithMarkup' in info['Value']:
+                                # Extract the first string value
+                                for markup in info['Value']['StringWithMarkup']:
+                                    if 'String' in markup:
+                                        logger.info(f"Found property value: {markup['String']}")
+                                        return markup['String']
+
+        logger.warning(f"No property found for headings {target_headings}")
+        return None
+
+        return None
 
     def close(self):
         """Close the session and free resources."""

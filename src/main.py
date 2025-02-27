@@ -1,7 +1,7 @@
 """
 Main script for the chemical safety database.
 
-This script provides a simple command-line interface for searching and
+This script provides a command-line interface for searching and
 retrieving chemical data from PubChem and storing it in a database.
 """
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 def setup_argparse():
     """Set up command-line argument parsing."""
     parser = argparse.ArgumentParser(
-        description="Chemical Safety Database - Search and store chemical data"
+        description="Chemical Safety Database - Search, store, and query chemical data"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Commands")
@@ -37,6 +37,23 @@ def setup_argparse():
     )
     search_parser.add_argument(
         "--store", action="store_true", help="Store the search results in the database"
+    )
+
+    # Query command
+    query_parser = subparsers.add_parser("query", help="Query specific chemical information")
+    query_parser.add_argument("chemical", help="Chemical name or CAS number")
+    query_parser.add_argument(
+        "--property", 
+        help="Specific property to retrieve", 
+        choices=[
+            # Existing properties
+            "flash_point", "boiling_point", "melting_point", 
+            "density", "vapor_pressure", "solubility", 
+            "physical_state", "hazard_statements",
+            
+            # New toxicity-related properties
+            "ld50", "lc50", "acute_toxicity_notes"
+        ]
     )
 
     # Import command
@@ -96,6 +113,71 @@ def search_chemical(query, store=False):
                 time.sleep(1)
 
 
+def query_chemical(chemical, property=None):
+    """
+    Query a specific chemical's information.
+
+    Args:
+        chemical: Chemical name or CAS number
+        property: Optional specific property to retrieve
+    """
+    db_manager = DatabaseManager()
+    
+    # Expanded search strategies
+    search_terms = [chemical]
+    
+    # Add variations for common chemicals
+    chemical_variations = {
+        "water": ["water", "oxidane", "H2O"],
+        "ethanol": ["ethanol", "ethyl alcohol", "C2H6O"],
+        "hydrochloric acid": ["hydrochloric acid", "chlorane", "HCl"]
+    }
+    
+    # Add variations if chemical matches a known variation
+    for key, variations in chemical_variations.items():
+        if chemical.lower() in [v.lower() for v in variations]:
+            search_terms.extend(variations)
+    
+    # First try searching by name
+    results = []
+    for term in search_terms:
+        results = db_manager.search_chemicals(term)
+        if results:
+            break
+    
+    if not results:
+        # If no results, try searching by CAS number
+        try:
+            result = db_manager.get_chemical_by_cas(chemical)
+            if result:
+                results = [result]
+        except Exception:
+            pass
+    
+    if not results:
+        logger.error(f"No chemical found matching: {chemical}")
+        return
+    
+    # Use the first result
+    chemical_data = results[0]
+    
+    # Debug: print full chemical data
+    print("Full Chemical Data:")
+    for key, value in chemical_data.items():
+        print(f"{key}: {value}")
+    
+    if property:
+        # If a specific property is requested
+        value = chemical_data.get(property, "Not found")
+        print(f"\n{chemical_data.get('name', chemical).capitalize()} {property.replace('_', ' ').title()}: {value}")
+    else:
+        # Print all available information
+        print(f"\nChemical Information for: {chemical_data.get('name', 'Unknown')}")
+        for key, value in chemical_data.items():
+            if value and key not in ['id', 'source_url', 'source_name', 'inchi', 'canonical_smiles', 'isomeric_smiles']:
+                print(f"{key.replace('_', ' ').title()}: {value}")
+
+
 def import_chemicals(file_path):
     """
     Import chemicals from a file containing names or CAS numbers.
@@ -133,13 +215,16 @@ def import_chemicals(file_path):
             logger.info(f"Found: {result['name']} (CID: {result['cid']})")
 
             # Extract detailed data
+            logger.info(f"Extracting data for: {result['name']}")
             chemical_data = scraper.extract_chemical_data(result)
+            
             if chemical_data:
-                db_manager.add_chemical(chemical_data)
-                logger.info(f"Stored: {chemical_data.get('name')}")
+                # Add to database
+                chem_id = db_manager.add_chemical(chemical_data)
+                logger.info(f"Stored chemical with ID: {chem_id}")
             else:
                 logger.warning(f"Failed to extract data for: {result['name']}")
-
+            
             # Be nice to the API
             if i < len(chemicals):
                 time.sleep(1)
@@ -177,6 +262,8 @@ def main():
 
     if args.command == "search":
         search_chemical(args.query, args.store)
+    elif args.command == "query":
+        query_chemical(args.chemical, args.property)
     elif args.command == "import":
         import_chemicals(args.file)
     elif args.command == "export":

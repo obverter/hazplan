@@ -35,6 +35,8 @@ def main():
         "hydrogen peroxide",
         "sodium hydroxide",
         "hydrochloric acid",
+        "ammonia",
+        "formaldehyde",
     ]
     
     # Search for and store each chemical
