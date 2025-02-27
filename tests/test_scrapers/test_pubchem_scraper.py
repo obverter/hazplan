@@ -194,7 +194,7 @@ class TestPubChemScraper:
                                                         },
                                                     }
                                                 ],
-                                            }
+                                            },
                                         ],
                                     },
                                 ],
@@ -281,15 +281,15 @@ class TestPubChemScraper:
     def test_get_full_json_data(self, mock_session):
         """Test retrieving full JSON data for a compound."""
         scraper = PubChemScraper()
-        
+
         # Test successful retrieval
         full_json = scraper._get_full_json_data("180")
         assert full_json is not None
         assert "Record" in full_json
-        
+
         # Verify specific section exists
         assert any(
-            section.get("TOCHeading") == "Experimental Properties" 
+            section.get("TOCHeading") == "Experimental Properties"
             for section in full_json.get("Record", {}).get("Section", [])
         )
 
@@ -297,19 +297,19 @@ class TestPubChemScraper:
         """Test extracting specific properties from full JSON."""
         scraper = PubChemScraper()
         full_json = scraper._get_full_json_data("180")
-        
+
         # Test successful extraction
         density = scraper._extract_property_from_full_json(
-            full_json, 
+            full_json,
             target_headings=["Experimental Properties"],
-            section_types=["Density"]
+            section_types=["Density"],
         )
         assert density == "0.79 g/cm³"
-        
+
         # Test with non-existent property
         non_existent = scraper._extract_property_from_full_json(
-            full_json, 
+            full_json,
             target_headings=["Non-existent Section"],
-            section_types=["Non-existent Type"]
+            section_types=["Non-existent Type"],
         )
         assert non_existent is None

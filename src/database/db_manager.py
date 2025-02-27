@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Create base class for SQLAlchemy models
 Base = declarative_base()
 
+
 class Chemical(Base):
     """SQLAlchemy model for the chemicals table."""
 
@@ -123,16 +124,21 @@ class Chemical(Base):
 
         # Add new parsed value columns to the dictionary
         additional_fields = [
-            'density_value', 'density_unit',
-            'melting_point_value', 'melting_point_unit',
-            'boiling_point_value', 'boiling_point_unit',
-            'flash_point_value', 'flash_point_unit',
-            'vapor_pressure_value', 'vapor_pressure_unit'
+            "density_value",
+            "density_unit",
+            "melting_point_value",
+            "melting_point_unit",
+            "boiling_point_value",
+            "boiling_point_unit",
+            "flash_point_value",
+            "flash_point_unit",
+            "vapor_pressure_value",
+            "vapor_pressure_unit",
         ]
-        
+
         for field in additional_fields:
             base_dict[field] = getattr(self, field, None)
-        
+
         return base_dict
 
 
@@ -296,13 +302,15 @@ class DatabaseManager:
                 all_matches = {
                     c.id: c for c in name_matches + cas_matches + formula_matches
                 }
-                
+
                 # Log the number of matches found
                 logger.info(f"Found {len(all_matches)} matching chemicals")
-                
+
                 # If no matches, log the queries tried
                 if not all_matches:
-                    logger.warning(f"No matches found for queries: name like '%{query}%', cas_number like '%{query}%', formula like '%{query}%'")
+                    logger.warning(
+                        f"No matches found for queries: name like '%{query}%', cas_number like '%{query}%', formula like '%{query}%'"
+                    )
 
                 return [c.to_dict() for c in all_matches.values()]
         except Exception as e:
