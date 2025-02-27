@@ -120,6 +120,10 @@ class Chemical(Base):
             "signal_word": self.signal_word,
             "source_url": self.source_url,
             "source_name": self.source_name,
+            # Add the toxicity fields
+            "ld50": self.ld50,
+            "lc50": self.lc50,
+            "acute_toxicity_notes": self.acute_toxicity_notes,
         }
 
         # Add new parsed value columns to the dictionary
